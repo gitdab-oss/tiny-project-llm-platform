@@ -199,3 +199,42 @@ async def query_all_models(user_input, conversation_history, models):
 - Export conversation history
 
 ---
+
+### API Debugging Phase - 12/22/2025
+
+**Issue Encountered:** Model deprecation and API compatibility errors
+**Tools Used:** Claude AI for troubleshooting and documentation review
+
+**Problems:**
+1. **Groq Error:** `llama-3.1-70b-versatile` model decommissioned
+2. **Gemini Error:** `gemini-pro` and `gemini-1.5-flash` returning 404 errors
+
+**Debugging Process:**
+
+**Groq Model Update:**
+- Original model: `llama-3.1-70b-versatile` (deprecated)
+- Updated to: `llama-3.3-70b-versatile` (current)
+- Source: https://console.groq.com/docs/models
+- **Prompt to AI:** "The Groq model llama-3.1-70b-versatile is deprecated. What's the current model name?"
+- **Outcome:** Successfully updated and working
+
+**Gemini Model Investigation:**
+- Attempted models: `gemini-pro`, `gemini-1.5-flash`, `models/gemini-1.5-flash`
+- Issue: 404 errors despite documentation suggesting these should work
+- **Debugging Strategy:** Created script to list all available models via API
+- **Prompt to AI:** "Google Gemini is returning 404 for gemini-1.5-flash. Help me list available models and find the correct model name"
+
+**Lessons Learned:**
+1. **API Evolution:** Model names and availability change frequently
+2. **Documentation Lag:** Official docs may not reflect latest API changes
+3. **Dynamic Discovery:** Always implement model listing/discovery in production code
+4. **Version Pinning:** Consider pinning SDK versions in requirements.txt to avoid breaking changes
+5. **Graceful Degradation:** Implement fallback mechanisms when models are unavailable
+
+**Scientific Approach:**
+- Used systematic debugging: list available resources → test variations → identify root cause
+- Documented each attempt and result
+- Leveraged AI assistant to accelerate troubleshooting process
+- Applied iterative problem-solving methodology
+
+---
