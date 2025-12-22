@@ -3,6 +3,8 @@ from openai import OpenAI
 from dotenv import load_dotenv
 import base64
 from pathlib import Path
+from PIL import Image, ImageDraw, ImageFont
+import json
 
 # Try to import specific error classes (available in newer versions)
 try:
@@ -42,25 +44,141 @@ class VisionAPI:
         with open(image_path, "rb") as image_file:
             return base64.b64encode(image_file.read()).decode('utf-8')
     
+    def refine_bounding_box(self, x1, y1, x2, y2, img_width, img_height, quadrant):
+        """
+        Refine bounding box coordinates to ensure they're valid and well-positioned
+        """
+        # Ensure coordinates are within image bounds
+        x1 = max(0, min(x1, img_width - 1))
+        y1 = max(0, min(y1, img_height - 1))
+        x2 = max(x1 + 10, min(x2, img_width - 1))  # Ensure minimum width
+        y2 = max(y1 + 10, min(y2, img_height - 1))  # Ensure minimum height
+        
+        # Ensure x2 > x1 and y2 > y1
+        if x2 <= x1:
+            x2 = x1 + 50
+        if y2 <= y1:
+            y2 = y1 + 50
+        
+        return [int(x1), int(y1), int(x2), int(y2)]
+    
+    def draw_bounding_boxes(self, image_path, bounding_boxes):
+        """
+        Draw bounding boxes on the image with yellow outline and red semi-transparent fill
+        """
+        img = Image.open(image_path).convert("RGB")
+        img_width, img_height = img.size
+        draw = ImageDraw.Draw(img, "RGBA")
+        
+        for bbox in bounding_boxes:
+            coords = bbox["coordinates"]
+            if len(coords) != 4:
+                continue
+                
+            x1, y1, x2, y2 = coords
+            quadrant = bbox.get("quadrant", "")
+            
+            # Refine coordinates
+            x1, y1, x2, y2 = self.refine_bounding_box(x1, y1, x2, y2, img_width, img_height, quadrant)
+            
+            label = bbox.get("label", "Wisdom Tooth")
+            
+            # Draw semi-transparent red fill
+            draw.rectangle([x1, y1, x2, y2], fill=(255, 0, 0, 100), outline=None)
+            
+            # Draw yellow outline
+            draw.rectangle([x1, y1, x2, y2], outline=(255, 255, 0, 255), width=3)
+            
+            # Draw label above the box
+            try:
+                font = ImageFont.truetype("arial.ttf", 16)
+            except:
+                font = ImageFont.load_default()
+            
+            # Position label above box, ensuring it's visible
+            label_y = max(0, y1 - 25)
+            draw.text((x1, label_y), label, fill=(255, 255, 0, 255), font=font)
+        
+        return img
+    
     def detect_wisdom_teeth(self, image_path):
         """
-        Use GPT-4 Vision to identify wisdom tooth areas in X-ray
+        Use GPT-4 Vision to identify wisdom tooth areas in X-ray and return analysis with bounding boxes
+        Returns: (analysis_text, annotated_image_path)
         """
         try:
             base64_image = self.encode_image(image_path)
+            
+            # Get image dimensions for coordinate reference
+            img = Image.open(image_path)
+            img_width, img_height = img.size
             
             response = self.client.chat.completions.create(
                 model="gpt-4o",  # GPT-4 with vision
                 messages=[
                     {
+                        "role": "system",
+                        "content": "You are an expert dental radiologist with years of experience analyzing dental X-rays. You can analyze X-ray images in detail and identify specific dental structures including wisdom teeth. Provide accurate, detailed analysis based on what you observe in the images. You MUST provide bounding box coordinates in pixel coordinates relative to the image dimensions."
+                    },
+                    {
                         "role": "user",
                         "content": [
                             {
                                 "type": "text",
-                                "text": """You are a dental X-ray analysis assistant. 
-                                Analyze this dental X-ray image and identify the wisdom teeth (third molars) regions.
-                                Provide the approximate locations as bounding box coordinates if visible.
-                                Format: {"wisdom_teeth_detected": true/false, "locations": ["upper_left", "upper_right", "lower_left", "lower_right"], "description": "..."}"""
+                                "text": f"""You are an expert dental radiologist analyzing a dental X-ray image.
+
+IMAGE DIMENSIONS: Width={img_width}px, Height={img_height}px
+
+TASK: Carefully examine this X-ray image and provide a detailed analysis of the wisdom teeth (third molars) with precise bounding box coordinates.
+
+REQUIREMENTS:
+1. Look at the image carefully and identify if wisdom teeth are present
+2. For each detected wisdom tooth, provide PRECISE bounding box coordinates in pixels
+3. Coordinates should be in format [x1, y1, x2, y2] where:
+   - (x1, y1) is the top-left corner of the wisdom tooth (including crown and root)
+   - (x2, y2) is the bottom-right corner of the wisdom tooth
+   - The bounding box should tightly surround the ENTIRE wisdom tooth structure
+   - Include a small margin (5-10 pixels) around the tooth for better visibility
+   - All coordinates must be valid pixel positions within the image dimensions
+4. BOUNDING BOX PRECISION:
+   - The box should be centered on the wisdom tooth
+   - For upper wisdom teeth: boxes should be in the upper portion of the image
+   - For lower wisdom teeth: boxes should be in the lower portion of the image
+   - For left wisdom teeth: boxes should be on the left side of the image
+   - For right wisdom teeth: boxes should be on the right side of the image
+   - The box should encompass the entire visible tooth structure (crown + visible root)
+5. Determine their locations in the four quadrants: upper left, upper right, lower left, lower right
+6. Describe what you see: Are they fully erupted, partially erupted, impacted, or absent?
+
+OUTPUT FORMAT: Provide your analysis in JSON format:
+{{
+    "wisdom_teeth_detected": true/false,
+    "bounding_boxes": [
+        {{
+            "quadrant": "upper_left/upper_right/lower_left/lower_right",
+            "coordinates": [x1, y1, x2, y2],
+            "label": "Wisdom Tooth (Upper Left)",
+            "status": "erupted/partially_erupted/impacted",
+            "confidence": 0.0-1.0
+        }}
+    ],
+    "analysis": {{
+        "upper_left": {{"present": true/false, "status": "...", "notes": "..."}},
+        "upper_right": {{"present": true/false, "status": "...", "notes": "..."}},
+        "lower_left": {{"present": true/false, "status": "...", "notes": "..."}},
+        "lower_right": {{"present": true/false, "status": "...", "notes": "..."}}
+    }},
+    "overall_description": "Detailed description of what you observe",
+    "recommendations": "Any observations or notes"
+}}
+
+CRITICAL: 
+- You MUST provide bounding box coordinates for each detected wisdom tooth
+- The coordinates must be valid pixel positions within the image dimensions (0 to width-1 for x, 0 to height-1 for y)
+- The bounding boxes should be PRECISELY positioned to surround each wisdom tooth
+- Look carefully at where the wisdom teeth are located in the X-ray and place the boxes directly over them
+- Do not say you cannot provide coordinates - carefully observe the image and provide accurate pixel coordinates
+- Double-check that your coordinates match the actual tooth positions in the image"""
                             },
                             {
                                 "type": "image_url",
@@ -71,10 +189,56 @@ class VisionAPI:
                         ]
                     }
                 ],
-                max_tokens=500
+                max_tokens=1500
             )
             
-            return response.choices[0].message.content
+            analysis_text = response.choices[0].message.content
+            
+            # Try to parse JSON and draw bounding boxes
+            try:
+                analysis_json = json.loads(analysis_text)
+                bounding_boxes = analysis_json.get("bounding_boxes", [])
+                
+                if bounding_boxes:
+                    # Draw bounding boxes on the image
+                    annotated_img = self.draw_bounding_boxes(image_path, bounding_boxes)
+                    
+                    # Save annotated image to a temp directory (not in sample_images)
+                    # This prevents annotated images from appearing in the sample dropdown
+                    image_path_obj = Path(image_path)
+                    if "sample_images" in str(image_path_obj):
+                        # If source is in sample_images, save to a temp folder
+                        temp_dir = image_path_obj.parent.parent / "temp_annotations"
+                        temp_dir.mkdir(exist_ok=True)
+                        output_path = temp_dir / f"annotated_{image_path_obj.name}"
+                    else:
+                        # Otherwise save in same directory as source
+                        output_path = image_path_obj.parent / f"annotated_{image_path_obj.name}"
+                    annotated_img.save(output_path)
+                    
+                    return analysis_text, str(output_path)
+                else:
+                    return analysis_text, None
+            except json.JSONDecodeError:
+                # If JSON parsing fails, try to extract JSON from text
+                try:
+                    # Look for JSON in the response
+                    start_idx = analysis_text.find('{')
+                    end_idx = analysis_text.rfind('}') + 1
+                    if start_idx >= 0 and end_idx > start_idx:
+                        json_str = analysis_text[start_idx:end_idx]
+                        analysis_json = json.loads(json_str)
+                        bounding_boxes = analysis_json.get("bounding_boxes", [])
+                        
+                        if bounding_boxes:
+                            annotated_img = self.draw_bounding_boxes(image_path, bounding_boxes)
+                            output_path = Path(image_path).parent / f"annotated_{Path(image_path).name}"
+                            annotated_img.save(output_path)
+                            return analysis_text, str(output_path)
+                except:
+                    pass
+            
+            return analysis_text, None
             
         except Exception as e:
             # Check if it's a rate limit/quota error (429)
