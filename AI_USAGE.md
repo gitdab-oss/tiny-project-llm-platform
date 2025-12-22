@@ -109,3 +109,93 @@ Structured JSON with:
 - Error handling for coordinate validation and edge cases (needs improvement)
 
 ---
+
+### Multi-Model LLM Chatbot - 12/22/2025
+
+**Tool Used:** GPT-4, Llama 3.1 70B (via Groq), Gemini-2.5-flash (Google)
+**Purpose:** Build a comparison interface to evaluate responses from multiple LLM providers side-by-side
+**Architecture:** Parallel async API calls using asyncio
+
+**Implementation Strategy:**
+1. Created modular API wrapper classes for each provider (OpenAI, Groq/Llama, Google)
+2. Implemented async parallel querying using `asyncio.gather()`
+3. Built Streamlit interface with side-by-side comparison
+4. Added performance metrics tracking (response time, token usage)
+
+**Key Design Decisions:**
+
+**1. Async Architecture:**
+```python
+async def query_all_models(user_input, conversation_history, models):
+    tasks = [
+        safe_query(name, instance)
+        for name, instance in model_instances.items()
+    ]
+    results = await asyncio.gather(*tasks)
+    return formatted_results
+```
+- Uses `asyncio.gather()` for true parallel execution
+- Each model query runs concurrently, reducing total wait time
+- Wrapped in `run_in_executor()` since some API clients are synchronous
+
+**2. Modular API Classes:**
+- `OpenAIAPI`: Wraps OpenAI's GPT-4/GPT-3.5-turbo
+- `LlamaAPI`: Wraps Llama 3.3 70B via Groq (free tier friendly, very fast)
+- `GeminiAPI`: Wraps Google Gemini 2.5 Flash
+- Each class implements consistent interface: `query(user_input, conversation_history)`
+
+**3. Error Handling:**
+- Graceful degradation: If one model fails, others continue
+- Clear error messages displayed in UI
+- Metadata includes status (success/error/unavailable)
+
+**4. Conversation History:**
+- Maintains context across multiple turns
+- Each model receives same conversation history
+- History stored in Streamlit session state
+
+**Prompt Strategy:**
+- No special prompting needed - using default model behavior
+- Conversation history provides context automatically
+- Temperature set to 0.7 for balanced creativity/consistency
+
+**UI Features:**
+- Side-by-side response comparison
+- Performance metrics (response time, token usage)
+- Conversation history sidebar
+- Model selection checkboxes
+- Comparison table for metrics
+
+**Results:**
+- Successfully queries 3 models in parallel
+- Average response time: ~2-5 seconds total (vs 6-15 seconds sequential)
+- Clear comparison of response quality and performance
+- Token usage tracking helps understand cost implications
+
+**Lessons Learned:**
+1. Async programming essential for parallel API calls
+2. Error handling critical when dealing with multiple external APIs
+3. Consistent interface design makes adding new models easier
+4. Performance metrics help users understand trade-offs
+5. Streamlit's session state perfect for conversation management
+
+**Technical Challenges:**
+- OpenAI and Groq clients are synchronous, requiring `run_in_executor()`
+- Gemini API has different response structure
+- Streamlit's async handling requires careful event loop management
+- Token usage not always available from all providers
+- Groq uses OpenAI-compatible API format, making integration straightforward
+
+**Model Selection Rationale:**
+- **GPT-4**: Industry standard, high quality responses
+- **Llama 3.3 70B (Groq)**: Free tier available, extremely fast inference, open-source model
+- **Gemini 2.5 Flash**: Good alternative perspective, Google's offering
+
+**Future Improvements:**
+- Add streaming responses for real-time updates
+- Implement response caching
+- Add model-specific temperature/parameter controls
+- Support for additional models (Claude, etc.)
+- Export conversation history
+
+---
