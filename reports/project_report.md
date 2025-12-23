@@ -2,6 +2,7 @@
 
 **Student:** Daniel Briceno  
 **Email:** dabriceno31@gmail.com
+
 **Date:** December 22, 2025  
 **GitHub Repository:** https://github.com/gitdab-oss/tiny-project-llm-platform
 
